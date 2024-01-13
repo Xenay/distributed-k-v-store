@@ -7,19 +7,23 @@ from fastapi import FastAPI, HTTPException, Response, status
 from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.query import SimpleStatement
-import json
+from requests import Session
 
 class Node:
   def __init__(self, ip, port, all_nodes, cassandra_hosts):
         self.ip = ip
         self.port = port
         self.app = FastAPI()
-        self.load = 0
+        self.active_requests = 0
+        self.active_requests_lock = threading.Lock()
+        self.http_session = Session()
+
         self.all_nodes = all_nodes
         self.cache = {}  # Simple cache
         self.cache_size = 1000
-
-        # Initialize ZooKeeper client
+        
+        
+        # Initialize Cassandra client
         auth_provider = PlainTextAuthProvider(username='cassandra', password='cassandra')
         self.cluster = Cluster(cassandra_hosts, auth_provider=auth_provider)
         self.session = self.cluster.connect()
@@ -33,33 +37,34 @@ class Node:
 
         @self.app.get("/get/{key}")
         async def get(key: str):
-            self.load += 1
-            # Check if the key is in the cache
-            if key in self.cache:
-                self.load -= 1
-                return self.cache[key]
-
-            # Load balancing: redirect if load is high
-            if self.load > 10:  # Threshold for load
-                self.load -= 1
-                return await self.redirect_request(key)
-
-            # Retrieve from ZooKeeper
-            result = self.session.execute(f"SELECT value FROM kvstore.data WHERE key = '{key}';").one()
-            if result:
-                value = result.value
-                if len(self.cache) >= self.cache_size:
-                    self.cache.popitem()
-                self.cache[key] = value
-                self.load -= 1
-                return value
-
-            self.load -= 1
+            with self.active_requests_lock:
+                self.active_requests += 1
+                print(self.active_requests)
+              
+                # Load balancing: redirect if load is high
+                if self.should_redirect():  # Threshold for load
+                        self.active_requests -= 1
+                        print("to many requests, sending to:")
+                        return await self.redirect_request(key)
+                
+                # Retrieve from Cassandra
+                result = self.session.execute(f"SELECT value FROM kvstore.data WHERE key = '{key}';").one()
+                if result:
+                        value = result.value
+                        if len(self.cache) >= self.cache_size:
+                            self.cache.popitem()
+                        self.cache[key] = value
+                        self.active_requests -= 1
+                        
+                        return value
+            with self.active_requests_lock:    
+                self.active_requests -= 1
             return {"error": "Key not found"}
 
         @self.app.post("/post/{key}")
         async def post(key: str, value: str):
         # Check if the key already exists
+            self.active_requests+=1
             select_query = SimpleStatement("SELECT value FROM kvstore.data WHERE key = %s")
             if self.session.execute(select_query, [key]).one():
                 return Response(status_code=status.HTTP_409_CONFLICT,
@@ -68,43 +73,52 @@ class Node:
         # Insert the new key-value pair
             insert_query = SimpleStatement("INSERT INTO kvstore.data (key, value) VALUES (%s, %s)")
             self.session.execute(insert_query, (key, value))
+            self.active_requests-=1
             #self.update_cache(key, value)
             return {"message": "New key-value pair created successfully"}
         
 
         @self.app.put("/put/{key}")
         async def put(key: str, value: str):
+            self.active_requests+=1
             insert_query = SimpleStatement("INSERT INTO kvstore.data (key, value) VALUES (%s, %s)")
             self.session.execute(insert_query, (key, value))
-            
+            self.active_requests-=1
             return {"message": "Value stored successfully"}
 
         @self.app.delete("/delete/{key}")
         async def delete(key: str):
+            self.active_requests+=1
+
             delete_query = SimpleStatement("DELETE FROM kvstore.data WHERE key = %s")
             self.session.execute(delete_query, [key])
-            if key in self.cache:
-                del self.cache[key]
+            
+            self.active_requests-=1
+
             return {"message": "Key deleted successfully"}
 
         @self.app.get("/health")
         async def health_check():
             return {"status": "alive"}
+        
+   
+  def should_redirect(self):
+            return self.active_requests > 100
 
   async def redirect_request(self, key):
-            node = self.select_node_for_redirection()
-            if node:
-                response = requests.get(f"http://{node['ip']}:{node['port']}/get/{key}")
-                return response.json()
-            else:
-                raise HTTPException(status_code=500, detail="No suitable node found")
+    node = self.select_node_for_redirection()
+    if node:
+        response = self.http_session.get(f"http://{node['ip']}:{node['port']}/get/{key}")
+        return response.json()
+    else:
+        raise HTTPException(status_code=500, detail="No suitable node found")
                                     
         # Select a node for redirection based on load
   def select_node_for_redirection(self):
-        for node in self.all_nodes:
+    for node in self.all_nodes:
             if node['ip'] != self.ip or node['port'] != self.port:
-                return node
-        return None
+                return node  # Redirect to the first different node
+    return None
 
   def start_server(self):
     uvicorn.run(self.app, host=self.ip, port=self.port)
@@ -133,7 +147,8 @@ class HeartbeatMonitor:
 cassandra_hosts = ['127.0.0.1'] # Replace with actual ZooKeeper hosts
 nodes_info = [
 {"ip": "127.0.1.1", "port": 8011},
-{"ip": "127.0.1.2", "port": 8012}
+{"ip": "127.0.1.2", "port": 8012},
+{"ip": "127.0.1.3", "port": 8013},
 ]
 nodes = [Node(node_info["ip"], node_info["port"], nodes_info, cassandra_hosts) for node_info in nodes_info]
 monitor = HeartbeatMonitor(nodes)
