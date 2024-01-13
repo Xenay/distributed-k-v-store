@@ -8,6 +8,12 @@ from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.query import SimpleStatement
 from requests import Session
+#import memcache
+#import redis
+
+
+
+
 
 class Node:
   def __init__(self, ip, port, all_nodes, cassandra_hosts):
@@ -17,10 +23,13 @@ class Node:
         self.active_requests = 0
         self.active_requests_lock = threading.Lock()
         self.http_session = Session()
+        #self.redis_client = redis.Redis(host='localhost', port=6379, db=0)  # Adjust the host and port accordingly
+        #self.memcached_client = memcache.Client(['127.0.0.1:11211'], debug=0)  # Adjust host and port if needed
 
         self.all_nodes = all_nodes
         self.cache = {}  # Simple cache
         self.cache_size = 1000
+        
         
         
         # Initialize Cassandra client
@@ -37,23 +46,32 @@ class Node:
 
         @self.app.get("/get/{key}")
         async def get(key: str):
+            
+            #cached_value = self.memcached_client.get(key)
+            #cached_value = self.redis_client.get(key)
+            
+            #if cached_value:
+                #return cached_value.decode('utf-8') 
+            
             with self.active_requests_lock:
                 self.active_requests += 1
                 print(self.active_requests)
               
+                             
                 # Load balancing: redirect if load is high
                 if self.should_redirect():  # Threshold for load
                         self.active_requests -= 1
                         print("to many requests, sending to:")
                         return await self.redirect_request(key)
                 
+                
+                
                 # Retrieve from Cassandra
                 result = self.session.execute(f"SELECT value FROM kvstore.data WHERE key = '{key}';").one()
                 if result:
                         value = result.value
-                        if len(self.cache) >= self.cache_size:
-                            self.cache.popitem()
-                        self.cache[key] = value
+                        #self.memcached_client.set(key, value)
+                        #self.redis_client.set(key, value)
                         self.active_requests -= 1
                         
                         return value
@@ -101,7 +119,7 @@ class Node:
         async def health_check():
             return {"status": "alive"}
         
-   
+
   def should_redirect(self):
             return self.active_requests > 100
 
@@ -149,6 +167,7 @@ nodes_info = [
 {"ip": "127.0.1.1", "port": 8011},
 {"ip": "127.0.1.2", "port": 8012},
 {"ip": "127.0.1.3", "port": 8013},
+
 ]
 nodes = [Node(node_info["ip"], node_info["port"], nodes_info, cassandra_hosts) for node_info in nodes_info]
 monitor = HeartbeatMonitor(nodes)
