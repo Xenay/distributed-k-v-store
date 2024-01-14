@@ -20,7 +20,7 @@ services:
     container_name: cassandra-node2
     hostname: cassandra-node2
     ports:
-      - "9043:9043"
+      - "9043:9042"
     depends_on:
       - cassandra-node1
     networks:

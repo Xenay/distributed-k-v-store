@@ -1,6 +1,8 @@
+import logging
 import threading
 import socket
 import time
+from fastapi.responses import JSONResponse
 import requests
 import uvicorn
 from fastapi import FastAPI, HTTPException, Response, status
@@ -13,7 +15,41 @@ from requests import Session
 
 
 
+class CassandraSessionManager:
+    _instance = None
+    _lock = threading.Lock()
 
+    def __new__(cls, *args, **kwargs):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(CassandraSessionManager, cls).__new__(cls)
+                cls._instance.cluster = None
+                cls._instance.session = None
+        return cls._instance
+
+    def connect(self, hosts, port):
+        if self.session is not None:
+            return self.session
+
+        try:
+            auth_provider = PlainTextAuthProvider(username='cassandra', password='cassandra')
+            self.cluster = Cluster(contact_points=hosts, port=port, auth_provider=auth_provider)
+            self.session = self.cluster.connect()
+        except Exception as e:
+            logging.error(f"Error connecting to Cassandra: {e}")
+            raise
+
+        return self.session
+
+    def shutdown(self):
+        if self.cluster is not None:
+            self.cluster.shutdown()
+        if self.session is not None:
+            self.session.shutdown()
+
+        self.cluster = None
+        self.session = None
+        
 
 class Node:
   def __init__(self, ip, port, all_nodes, cassandra_hosts):
@@ -30,14 +66,14 @@ class Node:
         self.all_nodes = all_nodes
         #self.cache = {}  # Simple cache
         #self.cache_size = 1000
-        
-        
+        self.cassandra_session_manager = CassandraSessionManager()
+        self.session = self.cassandra_session_manager.connect(cassandra_hosts, 9042)
         
         # Initialize Cassandra client
-        auth_provider = PlainTextAuthProvider(username='cassandra', password='cassandra')
-        self.cluster = Cluster(cassandra_hosts, auth_provider=auth_provider)
-        print(self.cluster.metadata, self.cluster.contact_points, self.cluster.port)
-        self.session = self.cluster.connect()
+        #auth_provider = PlainTextAuthProvider(username='cassandra', password='cassandra')
+        #self.cluster = Cluster(cassandra_hosts, auth_provider=auth_provider)
+        #print(self.cluster.metadata, self.cluster.contact_points, self.cluster.port)
+        #self.session = self.cluster.connect()
         try:
             self.session.execute("CREATE KEYSPACE IF NOT EXISTS kvstore WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': '2'}")
             self.session.execute("CREATE TABLE IF NOT EXISTS kvstore.data (key text PRIMARY KEY, value text)")
@@ -79,16 +115,16 @@ class Node:
                 except Exception as e:
                     print(f"Primary Cassandra instance failed: {e}")
                     # Switch to the secondary Cassandra instance
-                    self.switch_to_secondary_instance()
+                    
                     try:
+                        self.switch_to_secondary_instance()
                         # Retry the operation
                         result = self.session.execute(f"SELECT value FROM kvstore.data WHERE key = '{key}';").one()
                         if result:
                             return result.value
                     except Exception as e:
-                        print(f"Secondary Cassandra instance also failed: {e}")
-                        # Handle the case where both instances are down
-                        return {"error": "Both Cassandra instances are down"}
+                        logging.error(f"Secondary Cassandra instance also failed: {e}")
+                        return JSONResponse(status_code=500, content={"error": "Both Cassandra instances are down or unreachable"})
                         
             with self.active_requests_lock:    
                 self.active_requests -= 1
@@ -154,15 +190,13 @@ class Node:
     return None
 
   def switch_to_secondary_instance(self):
-    # Logic to switch to the secondary Cassandra instance
-   
-        #secondary_host = '127.0.0.1'  # Replace with the actual IP if different
-        #secondary_port = 9043  # Port for the secondary instance
-        self.cluster = Cluster(contact_points=["127.0.0.1"], port=9043, auth_provider=PlainTextAuthProvider(username='cassandra', password='cassandra'))
-        # Construct a new cluster object with the secondary instance
-        #self.cluster = Cluster(contact_points=[secondary_host], port=secondary_port, auth_provider=PlainTextAuthProvider(username='cassandra', password='cassandra'))
-
-        self.session = self.cluster.connect()
+        logging.info("Switching to secondary Cassandra instance...")
+        try:
+            self.cassandra_session_manager.shutdown()
+            self.session = self.cassandra_session_manager.connect(["127.0.0.1"], 9043)
+        except Exception as e:
+            logging.error(f"Failed to switch to secondary Cassandra instance: {e}")
+        
     
 
   def start_server(self):
