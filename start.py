@@ -25,6 +25,7 @@ class Node:
         self.http_session = Session()
         #self.redis_client = redis.Redis(host='localhost', port=6379, db=0)  # Adjust the host and port accordingly
         #self.memcached_client = memcache.Client(['127.0.0.1:11211'], debug=0)  # Adjust host and port if needed
+        self.cassandra_hosts = cassandra_hosts  # Store the Cassandra hosts
 
         self.all_nodes = all_nodes
         self.cache = {}  # Simple cache
@@ -35,21 +36,20 @@ class Node:
         # Initialize Cassandra client
         auth_provider = PlainTextAuthProvider(username='cassandra', password='cassandra')
         self.cluster = Cluster(cassandra_hosts, auth_provider=auth_provider)
+        print(self.cluster.metadata, self.cluster.contact_points, self.port)
         self.session = self.cluster.connect()
         try:
             self.session.execute("CREATE KEYSPACE IF NOT EXISTS kvstore WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': '2'}")
             self.session.execute("CREATE TABLE IF NOT EXISTS kvstore.data (key text PRIMARY KEY, value text)")
         except Exception as e:
             print(f"Error creating keyspace or table: {e}")
-        self.session.execute("USE kv_store;")
+        self.session.execute("USE kvstore;")
         
 
         @self.app.get("/get/{key}")
         async def get(key: str):
-            
             #cached_value = self.memcached_client.get(key)
             #cached_value = self.redis_client.get(key)
-            
             #if cached_value:
                 #return cached_value.decode('utf-8') 
             
@@ -65,16 +65,31 @@ class Node:
                         return await self.redirect_request(key)
                 
                 
-                
+                try:
                 # Retrieve from Cassandra
-                result = self.session.execute(f"SELECT value FROM kvstore.data WHERE key = '{key}';").one()
-                if result:
-                        value = result.value
-                        #self.memcached_client.set(key, value)
-                        #self.redis_client.set(key, value)
-                        self.active_requests -= 1
+                    result = self.session.execute(f"SELECT value FROM kvstore.data WHERE key = '{key}';").one()
+                    if result:
+                            value = result.value
+                            #self.memcached_client.set(key, value)
+                            #self.redis_client.set(key, value)
+                            self.active_requests -= 1
+                            
+                            return value
+                
+                except Exception as e:
+                    print(f"Primary Cassandra instance failed: {e}")
+                    # Switch to the secondary Cassandra instance
+                    self.switch_to_secondary_instance()
+                    try:
+                        # Retry the operation
+                        result = self.session.execute(f"SELECT value FROM kvstore.data WHERE key = '{key}';").one()
+                        if result:
+                            return result.value
+                    except Exception as e:
+                        print(f"Secondary Cassandra instance also failed: {e}")
+                        # Handle the case where both instances are down
+                        return {"error": "Both Cassandra instances are down"}
                         
-                        return value
             with self.active_requests_lock:    
                 self.active_requests -= 1
             return {"error": "Key not found"}
@@ -138,6 +153,19 @@ class Node:
                 return node  # Redirect to the first different node
     return None
 
+  def switch_to_secondary_instance(self):
+    # Logic to switch to the secondary Cassandra instance
+    try:
+        secondary_host = '127.0.0.1'  # Replace with the actual IP if different
+        secondary_port = 9043  # Port for the secondary instance
+
+        # Construct a new cluster object with the secondary instance
+        self.cluster = Cluster(contact_points=[secondary_host], port=secondary_port, auth_provider=PlainTextAuthProvider(username='cassandra', password='cassandra'))
+
+        self.session = self.cluster.connect("kvstore")
+    except Exception as e:
+        print(f"Error connecting to secondary Cassandra instance: {e}")
+
   def start_server(self):
     uvicorn.run(self.app, host=self.ip, port=self.port)
 
@@ -162,6 +190,7 @@ class HeartbeatMonitor:
             return False
 
 # Example usage
+cashost1 = ['127.0.0.1']
 cassandra_hosts = ['127.0.0.1'] # Replace with actual ZooKeeper hosts
 nodes_info = [
 {"ip": "127.0.1.1", "port": 8011},

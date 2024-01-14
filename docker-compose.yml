@@ -1,0 +1,37 @@
+version: '3'
+
+services:
+  cassandra-node1:
+    image: cassandra
+    container_name: cassandra-node1
+    hostname: cassandra-node1
+    ports:
+      - "9042:9042"
+    networks:
+      - cassandra
+    environment:
+      - CASSANDRA_CLUSTER_NAME=MyCassandraCluster
+      - CASSANDRA_DC=DC1
+      - CASSANDRA_RACK=RAC1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+
+  cassandra-node2:
+    image: cassandra
+    container_name: cassandra-node2
+    hostname: cassandra-node2
+    ports:
+      - "9043:9043"
+    depends_on:
+      - cassandra-node1
+    networks:
+      - cassandra
+    environment:
+      - CASSANDRA_CLUSTER_NAME=MyCassandraCluster
+      - CASSANDRA_SEEDS=cassandra-node1
+      - CASSANDRA_DC=DC1
+      - CASSANDRA_RACK=RAC2
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+
+networks:
+  cassandra:
+    driver: bridge
