@@ -28,15 +28,15 @@ class Node:
         self.cassandra_hosts = cassandra_hosts  # Store the Cassandra hosts
 
         self.all_nodes = all_nodes
-        self.cache = {}  # Simple cache
-        self.cache_size = 1000
+        #self.cache = {}  # Simple cache
+        #self.cache_size = 1000
         
         
         
         # Initialize Cassandra client
         auth_provider = PlainTextAuthProvider(username='cassandra', password='cassandra')
         self.cluster = Cluster(cassandra_hosts, auth_provider=auth_provider)
-        print(self.cluster.metadata, self.cluster.contact_points, self.port)
+        print(self.cluster.metadata, self.cluster.contact_points, self.cluster.port)
         self.session = self.cluster.connect()
         try:
             self.session.execute("CREATE KEYSPACE IF NOT EXISTS kvstore WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': '2'}")
@@ -155,16 +155,15 @@ class Node:
 
   def switch_to_secondary_instance(self):
     # Logic to switch to the secondary Cassandra instance
-    try:
-        secondary_host = '127.0.0.1'  # Replace with the actual IP if different
-        secondary_port = 9043  # Port for the secondary instance
-
+   
+        #secondary_host = '127.0.0.1'  # Replace with the actual IP if different
+        #secondary_port = 9043  # Port for the secondary instance
+        self.cluster = Cluster(contact_points=["127.0.0.1"], port=9043, auth_provider=PlainTextAuthProvider(username='cassandra', password='cassandra'))
         # Construct a new cluster object with the secondary instance
-        self.cluster = Cluster(contact_points=[secondary_host], port=secondary_port, auth_provider=PlainTextAuthProvider(username='cassandra', password='cassandra'))
+        #self.cluster = Cluster(contact_points=[secondary_host], port=secondary_port, auth_provider=PlainTextAuthProvider(username='cassandra', password='cassandra'))
 
-        self.session = self.cluster.connect("kvstore")
-    except Exception as e:
-        print(f"Error connecting to secondary Cassandra instance: {e}")
+        self.session = self.cluster.connect()
+    
 
   def start_server(self):
     uvicorn.run(self.app, host=self.ip, port=self.port)
