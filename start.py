@@ -59,6 +59,7 @@ class Node:
         self.active_requests = 0
         self.active_requests_lock = threading.Lock()
         self.http_session = Session()
+        self.nodeIsAlive = True
         #self.redis_client = redis.Redis(host='localhost', port=6379, db=0)  # Adjust the host and port accordingly
         #self.memcached_client = memcache.Client(['127.0.0.1:11211'], debug=0)  # Adjust host and port if needed
         self.cassandra_hosts = cassandra_hosts  # Store the Cassandra hosts
@@ -88,7 +89,9 @@ class Node:
             #cached_value = self.redis_client.get(key)
             #if cached_value:
                 #return cached_value.decode('utf-8') 
-            
+            if not self.is_node_alive():
+                return await self.redirect_request(key)
+        
             with self.active_requests_lock:
                 self.active_requests += 1
                 print(self.active_requests)
@@ -133,6 +136,8 @@ class Node:
         @self.app.post("/post/{key}")
         async def post(key: str, value: str):
         # Check if the key already exists
+            #if not self.is_node_alive():
+                #return await self.redirect_request(key)
             self.active_requests+=1
             select_query = SimpleStatement("SELECT value FROM kvstore.data WHERE key = %s")
             if self.session.execute(select_query, [key]).one():
@@ -149,6 +154,8 @@ class Node:
 
         @self.app.put("/put/{key}")
         async def put(key: str, value: str):
+            #if not self.is_node_alive():
+                #return await self.redirect_request(key)
             self.active_requests+=1
             insert_query = SimpleStatement("INSERT INTO kvstore.data (key, value) VALUES (%s, %s)")
             self.session.execute(insert_query, (key, value))
@@ -170,7 +177,21 @@ class Node:
         async def health_check():
             return {"status": "alive"}
         
-
+  async def is_node_alive(self):
+        return self.nodeIsAlive
+  async def redirect_request(self, key):
+        alternative_node = self.select_alternative_node()
+        if alternative_node:
+            response = await self.http_session.get(f"http://{alternative_node['ip']}:{alternative_node['port']}/get/{key}")
+            return response.json()
+        else:
+            raise HTTPException(status_code=500, detail="No alternative node found")
+  def select_alternative_node(self):
+        for node in self.all_nodes:
+            if node['ip'] != self.ip or node['port'] != self.port:
+                return node
+        return None
+    
   def should_redirect(self):
             return self.active_requests > 100
 
@@ -218,6 +239,10 @@ class HeartbeatMonitor:
     def is_node_alive(self, node):
         try:
             response = requests.get(f"http://{node.ip}:{node.port}/health")
+            if response.status_code == 200:
+                self.nodeIsAlive =  True
+            else:
+                self.nodeIsAlive = False
             return response.status_code == 200
         except requests.exceptions.RequestException:
             return False
