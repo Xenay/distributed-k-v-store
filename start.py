@@ -210,13 +210,13 @@ class Node:
                 return node  # Redirect to the first different node
     return None
 
-  def switch_to_secondary_instance(self):
-        logging.info("Switching to secondary Cassandra instance...")
-        try:
-            self.cassandra_session_manager.shutdown()
-            self.session = self.cassandra_session_manager.connect(["127.0.0.1"], 9043)
-        except Exception as e:
-            logging.error(f"Failed to switch to secondary Cassandra instance: {e}")
+  #def switch_to_secondary_instance(self):
+   #     logging.info("Switching to secondary Cassandra instance...")
+    #    try:
+     #       self.cassandra_session_manager.shutdown()
+      #      self.session = self.cassandra_session_manager.connect(["127.0.0.1"], 9043)
+       # except Exception as e:
+        #    logging.error(f"Failed to switch to secondary Cassandra instance: {e}")
         
     
 
@@ -248,17 +248,15 @@ class HeartbeatMonitor:
             return False
 
 # Example usage
-cashost1 = ['127.0.0.1']
 cassandra_hosts = ['127.0.0.1'] # Replace with actual ZooKeeper hosts
 nodes_info = [
 {"ip": "127.0.1.1", "port": 8011},
 {"ip": "127.0.1.2", "port": 8012},
 {"ip": "127.0.1.3", "port": 8013},
-
 ]
+
 nodes = [Node(node_info["ip"], node_info["port"], nodes_info, cassandra_hosts) for node_info in nodes_info]
 monitor = HeartbeatMonitor(nodes)
-
 
 # Start monitoring in a separate thread
 monitor_thread = threading.Thread(target=monitor.check_nodes)
