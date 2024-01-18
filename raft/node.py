@@ -39,6 +39,7 @@ class Node:
         self.election_timeout = random.randint(450, 800) / 100
         self.term = 0  # Election term
         self.voted_for = None
+        self.deadNode = 0
         
         @self.app.get("/heartbeat")
         async def receive_heartbeat():
@@ -90,6 +91,10 @@ class Node:
             #self.update_cache(key, value)
             return {"message": "New key-value pair created successfully"}
         
+        @self.app.get("/turnToFollower")
+        async def turnToFollower():
+            self.state = "follower"
+            return {"message": "state modified successfully"}
 
         @self.app.put("/put/{key}")
         async def put(key: str, value: str):
@@ -156,12 +161,15 @@ class Node:
                 except requests.exceptions.RequestException as e:
                     print(f"Error contacting node {node['port']}: {e}")
 
-        if votes > len(self.all_nodes) // 2:
+        if votes > (len(self.all_nodes)-self.deadNode) // 2:
             self.state = "leader"
             self.start_heartbeat()
             print(f"Elected as leader for term {self.term}")
+            for node in self.all_nodes:
+                if node['port'] != self.port:
+                        self.http_session.get(f"http://{node['ip']}:{node['port']}/turnToFollower")
+                        
 
-    
     def check_if_leader_alive(self):
         
         print((time.time() - self.last_heartbeat_time))
@@ -176,3 +184,4 @@ class Node:
         monitor = HeartbeatMonitor(self.all_nodes)
         monitor_thread = threading.Thread(target=monitor.send_heartbeats)
         monitor_thread.start()
+        

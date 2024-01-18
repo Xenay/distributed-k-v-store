@@ -44,6 +44,7 @@ def leader_check_loop():
             if not node.check_if_leader_alive() and node.state != "leader":
                 
                 print("Leader is dead, starting election")
+                node.deadNode+=1
                 node.start_election()
             time.sleep(0.8)
 leader_check_thread = threading.Thread(target=leader_check_loop)
