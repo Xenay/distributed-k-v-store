@@ -20,8 +20,9 @@ class HeartbeatMonitor():
         try:
             print(f"http://{node['ip']}:{node['port']}/heartbeat")
             response = requests.get(f"http://{node['ip']}:{node['port']}/heartbeat")
-            
+         
             if response.status_code == 200:
+                
                 print(f"Node {node['ip']}:{node['port']} is up")
             else:
                 print(f"Node {node['ip']}:{node['port']} is down")

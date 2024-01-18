@@ -36,7 +36,7 @@ class Node:
         self.state = [state for state in all_nodes if state['port'] == self.port][0]['state']
         self.last_heartbeat_time = time.time()
         #election
-        self.election_timeout = random.randint(1500, 3000)
+        self.election_timeout = random.randint(450, 800) / 100
         self.term = 0  # Election term
         self.voted_for = None
         
@@ -44,6 +44,8 @@ class Node:
         async def receive_heartbeat():
             
             self.last_heartbeat_time = time.time()
+            
+            
             return {"status": "heartbeat received", "port": self.port}
             
             
@@ -161,13 +163,16 @@ class Node:
 
     
     def check_if_leader_alive(self):
-        print("checking")
+        
+        print((time.time() - self.last_heartbeat_time))
+        
         if (time.time() - self.last_heartbeat_time) > self.election_timeout and (self.state != "leader"):
             print("timeout")
-            self.start_election()
-        return self.state == "leader"
+            #self.start_election()
+            return False
+        return True
     
     def start_heartbeat(self):
         monitor = HeartbeatMonitor(self.all_nodes)
-        monitor_thread = threading.Thread(target=monitor.send_heartbeats())
+        monitor_thread = threading.Thread(target=monitor.send_heartbeats)
         monitor_thread.start()
