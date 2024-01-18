@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import random
@@ -162,31 +163,31 @@ class Node:
 
 
   def start_server(self):
-    self.server_thread = threading.Thread(target=uvicorn.run, args=(self.app,), kwargs={'host': self.ip, 'port': self.port, "log_level": "info"})
-    self.server_thread.start()
+        uvicorn.run(self.app, host=self.ip, port=self.port, log_level="info")
   
     
   def check_if_leader_alive(self):
         return time.time() - self.last_heartbeat_time < 10  # Example timeout
 
 
-class HeartbeatMonitor:
+class HeartbeatMonitor():
     def __init__(self, nodes):
         self.nodes = nodes
         self.node_status = {node: True for node in nodes}# List of nodes in the system
 
     def send_heartbeats(self):
+        target = nodes[0]
         while True:
-            for node in self.nodes:
-                if node.state == "leader":
-                    for follower in self.nodes:
-                        if follower != node:
-                            self.check_node_status(follower)
+            for follower in self.nodes:
+                if follower!= target:
+                    self.check_node_status(follower)
             time.sleep(3)  # Example heartbeat interval
 
     def check_node_status(self, node):
         try:
+            print(f"http://{node.ip}:{node.port}/heartbeat")
             response = requests.get(f"http://{node.ip}:{node.port}/heartbeat")
+            
             if response.status_code == 200:
                 print(f"Node {node.ip}:{node.port} is up")
             else:
@@ -198,9 +199,9 @@ class HeartbeatMonitor:
 # Example usage
 cassandra_hosts = ['127.0.0.1'] # Replace with actual ZooKeeper hosts
 nodes_info = [
-{"ip": "127.0.1.1", "port": 8011},
-{"ip": "127.0.1.2", "port": 8012},
-{"ip": "127.0.1.3", "port": 8013},
+{"ip": "127.0.0.1", "port": 8011},
+{"ip": "127.0.0.1", "port": 8012},
+{"ip": "127.0.0.1", "port": 8013},
 ]
 
 nodes = [Node(node_info["ip"], node_info["port"], nodes_info, cassandra_hosts) for node_info in nodes_info]
@@ -208,9 +209,21 @@ nodes[0].state = "leader"
 monitor = HeartbeatMonitor(nodes)
 
 # Start monitoring in a separate thread
-if nodes[0].state == "leader":
-    monitor_thread = threading.Thread(target=monitor.send_heartbeats)
-    monitor_thread.start()
+
+monitor_thread = threading.Thread(target=monitor.send_heartbeats)
+monitor_thread.start()
+
+
+if __name__ == "__main__":
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Start a node server.")
+    parser.add_argument("--ip", type=str, required=True, help="IP address of the node")
+    parser.add_argument("--port", type=int, required=True, help="Port number of the node")
+    args = parser.parse_args()
+
+    # Initialize and start a Node
+    node = Node(ip=args.ip, port=args.port, all_nodes=nodes_info, cassandra_hosts=cassandra_hosts)
+    node.start_server()
 
 # Start node servers
 #for node in nodes:
