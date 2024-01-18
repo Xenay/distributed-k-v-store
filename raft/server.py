@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import random
+import sys
 import threading
 import socket
 import time
@@ -17,7 +18,6 @@ from requests import Session
 #import memcache
 #import redis
 
-app = FastAPI()
 
 class CassandraSessionManager:
     _instance = None
@@ -54,12 +54,14 @@ class CassandraSessionManager:
         self.cluster = None
         self.session = None
         
-
+app = FastAPI()
 class Node:
+
   def __init__(self, ip, port, all_nodes, cassandra_hosts):
+        global app
         self.ip = ip
         self.port = port
-        
+        self.app = app
         self.active_requests = 0
         self.active_requests_lock = threading.Lock()
         self.http_session = Session()
@@ -77,15 +79,14 @@ class Node:
         
       
         
-        app.get("/heartbeat")
+        @self.app.get("/heartbeat")
         async def receive_heartbeat():
-            if self.state != "leader":
-                self.last_heartbeat_time = time.time()
-                return {"status": "heartbeat received", "port": self.port}
-            else:
-                return {"error": "leader cannot receive heartbeats"}, 400
             
-        app.get("/get/{key}")
+            self.last_heartbeat_time = time.time()
+            return {"status": "heartbeat received", "port": self.port}
+            
+            
+        @self.app.get("/get/{key}")
         async def get(key: str):
             #cached_value = self.memcached_client.get(key)
             #cached_value = self.redis_client.get(key)
@@ -112,7 +113,7 @@ class Node:
                 self.active_requests -= 1
             return {"error": "Key not found"}
 
-        app.post("/post/{key}")
+        @self.app.post("/post/{key}")
         async def post(key: str, value: str):
         # Check if the key already exists
             #if not self.is_node_alive():
@@ -127,7 +128,7 @@ class Node:
             return {"message": "New key-value pair created successfully"}
         
 
-        app.put("/put/{key}")
+        @self.app.put("/put/{key}")
         async def put(key: str, value: str):
             #if not self.is_node_alive():
                 #return await self.redirect_request(key)
@@ -136,7 +137,7 @@ class Node:
             self.active_requests-=1
             return {"message": "Value stored successfully"}
 
-        app.delete("/delete/{key}")
+        @self.app.delete("/delete/{key}")
         async def delete(key: str):
             self.active_requests+=1
             self.active_requests-=1
@@ -144,11 +145,11 @@ class Node:
             return {"message": "Key deleted successfully"}
         
 
-        app.get("/health")
+        @self.app.get("/health")
         async def health_check():
             return {"status": "alive"}
         
-        app.get("/shutdown")
+        @self.app.get("/shutdown")
         async def shutdown():
             # Perform any necessary cleanup here
             # ...
@@ -173,57 +174,59 @@ class Node:
 class HeartbeatMonitor():
     def __init__(self, nodes):
         self.nodes = nodes
-        self.node_status = {node: True for node in nodes}# List of nodes in the system
+        # List of nodes in the system
 
     def send_heartbeats(self):
-        target = nodes[0]
+        
         while True:
+            
             for follower in self.nodes:
-                if follower!= target:
+                if follower["state"] != 'leader':
                     self.check_node_status(follower)
             time.sleep(3)  # Example heartbeat interval
 
     def check_node_status(self, node):
         try:
-            print(f"http://{node.ip}:{node.port}/heartbeat")
-            response = requests.get(f"http://{node.ip}:{node.port}/heartbeat")
+            print(f"http://{node['ip']}:{node['port']}/heartbeat")
+            response = requests.get(f"http://{node['ip']}:{node['port']}/heartbeat")
             
             if response.status_code == 200:
-                print(f"Node {node.ip}:{node.port} is up")
+                print(f"Node {node['ip']}:{node['port']} is up")
             else:
-                print(f"Node {node.ip}:{node.port} is down")
+                print(f"Node {node['ip']}:{node['port']} is down")
         except requests.exceptions.RequestException:
-                print(f"Node {node.ip}:{node.port} is down")
+                print(f"Node {node['ip']}:{node['port']} is down")
                 
 
 # Example usage
 cassandra_hosts = ['127.0.0.1'] # Replace with actual ZooKeeper hosts
 nodes_info = [
-{"ip": "127.0.0.1", "port": 8011},
-{"ip": "127.0.0.1", "port": 8012},
-{"ip": "127.0.0.1", "port": 8013},
+{"ip": "127.0.0.1", "port": 8011, "state": "leader"},
+{"ip": "127.0.0.1", "port": 8012, "state": "follower"},
+{"ip": "127.0.0.1", "port": 8013, "state": "follower"},
 ]
+global node
 
-nodes = [Node(node_info["ip"], node_info["port"], nodes_info, cassandra_hosts) for node_info in nodes_info]
-nodes[0].state = "leader"
-monitor = HeartbeatMonitor(nodes)
+if "--port" in sys.argv:
+        port_index = sys.argv.index("--port") + 1
+        if port_index < len(sys.argv):
+            port_number = int(sys.argv[port_index])
+            
+            
+node = Node(ip = "127.0.0.1", port = port_number, all_nodes=nodes_info, cassandra_hosts=cassandra_hosts)
 
+#nodes = [Node(node_info["ip"], node_info["port"], nodes_info, cassandra_hosts) for node_info in nodes_info]
+#nodes[0].state = "leader"
+print(port_number)
+if port_number == 8011:
+    monitor = HeartbeatMonitor(nodes_info)
+    monitor_thread = threading.Thread(target=monitor.send_heartbeats)
+    monitor_thread.start()
 # Start monitoring in a separate thread
 
-monitor_thread = threading.Thread(target=monitor.send_heartbeats)
-monitor_thread.start()
 
 
-if __name__ == "__main__":
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(description="Start a node server.")
-    parser.add_argument("--ip", type=str, required=True, help="IP address of the node")
-    parser.add_argument("--port", type=int, required=True, help="Port number of the node")
-    args = parser.parse_args()
 
-    # Initialize and start a Node
-    node = Node(ip=args.ip, port=args.port, all_nodes=nodes_info, cassandra_hosts=cassandra_hosts)
-    node.start_server()
 
 # Start node servers
 #for node in nodes:
