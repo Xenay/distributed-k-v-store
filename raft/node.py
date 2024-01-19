@@ -54,7 +54,8 @@ class Node:
         self.commit_index = 1
         self.nextIndex = {node['port']: len(self.log) for node in self.all_nodes}
         
-        
+        self.monitor = HeartbeatMonitor(self.all_nodes, self.commit_index, self.node_id, self.term, self.log, self.nextIndex)
+
 
         
         @self.app.get("/heartbeat")
@@ -174,15 +175,15 @@ class Node:
             #if request.prev_log_index != -1 :
             #     # Remove conflicting entries
                 #self.log = self.log[:request.prev_log_index + 1]
-                
+            
             # Truncate the log if necessary and append new entries
             #self.log = self.log[:request.prev_log_index + 1]
             self.log = self.log[:request.prev_log_index + 1]
             for entry in request.entries:
-                # Append new log entries
                 new_log_entry = LogEntry(index=entry['index'], term=entry['term'], command=entry['command'])
-                self.log.append(new_log_entry)
-                
+                # Check if new entry's index is greater than the last index in the log
+                if not self.log or new_log_entry.index > self.log[-1].index:
+                    self.log.append(new_log_entry)
 
             # Update the commit index
             if request.leader_commit > self.commit_index:
@@ -231,15 +232,23 @@ class Node:
         return True
     
     def start_heartbeat(self):
-        monitor = HeartbeatMonitor(self.all_nodes, self.commit_index, self.node_id, self.term, self.log, self.nextIndex)
-        monitor_thread = threading.Thread(target=monitor.send_heartbeats)
+        #monitor = HeartbeatMonitor(self.all_nodes, self.commit_index, self.node_id, self.term, self.log, self.nextIndex)
+        monitor_thread = threading.Thread(target=self.monitor.send_heartbeats)
         heartbeat_interval = 0.5  # Half a second, adjust as needed
-        heartbeat_thread = threading.Thread(target=monitor.send_append_entries)
-        heartbeat_thread.start()
+        #heartbeat_thread = threading.Thread(target=self.monitor.send_append_entries)
+        #heartbeat_thread.start()
         monitor_thread.start()
+        #update_thread = threading.Thread(target=self.updateDataToSend)
+        #update_thread.start()
         
+    def updateDataToSend(self):      
+        self.monitor.nodes = self.all_nodes
+        self.monitor.commit_index= self.commit_index
+        self.monitor.leader_id= self.node_id
+        self.monitor.term= self.term
+        self.monitor.next_index = self.nextIndex
+        self.monitor.log = self.log 
         
-    
     def stop_heartbeat(self):
         if self.heartbeat_thread:
             self.heartbeat_thread.cancel()
@@ -247,7 +256,7 @@ class Node:
     def append_new_entry_and_replicate(self, command):
         # Append a new entry to the leader's log
         new_log_entry = LogEntry(index=len(self.log), term=self.term, command=command)
-        self.log.append(new_log_entry)
+        #self.log.append(new_log_entry)
 
         # Update nextIndex for all followers to the new length of the log
         for node in self.all_nodes:
@@ -258,8 +267,9 @@ class Node:
         self.replicate_log_to_followers(new_log_entry)
         
     def replicate_log_to_followers(self,command):
-        monitor2 = HeartbeatMonitor(self.all_nodes, self.commit_index, self.node_id, self.term, self.log, self.nextIndex)
-        monitor2.log.append(command)
-        monitor2.send_append_entries()
+        #monitor2 = HeartbeatMonitor(self.all_nodes, self.commit_index, self.node_id, self.term, self.log, self.nextIndex)
+        self.monitor.log.append(command)
+        self.monitor.send_append_entries()
+        self.updateDataToSend()
         
    

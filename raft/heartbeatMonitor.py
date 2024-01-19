@@ -61,7 +61,7 @@ class HeartbeatMonitor():
             print(f"Error contacting node {follower['port']}: {e}")
         
         finally:
-            self.log = []  
+            self.log = []
     def send_append_entries(self):
         for node in self.nodes:
             if node['state'] != "leader":  # Exclude self (leader)
