@@ -54,6 +54,7 @@ class Node:
         self.commit_index = 1
         self.nextIndex = {node['port']: len(self.log) for node in self.all_nodes}
         
+        
 
         
         @self.app.get("/heartbeat")
@@ -161,14 +162,19 @@ class Node:
             if request.term < self.term:
                 return {"success": False, "term": self.term, "error": "Outdated term"}
 
-            # Check if the previous log index is out of bounds
-            if request.prev_log_index >= len(self.log) or request.prev_log_index < -1:
-                return {"success": False, "term": self.term, "error": "prev_log_index out of bounds"}
+            # # Check if the previous log index is out of bounds
+            # if request.prev_log_index >= len(self.log) or request.prev_log_index < -1:
+            #     return {"success": False, "term": self.term, "error": "prev_log_index out of bounds"}
 
-            # Check if the term at the previous log index matches
-            if request.prev_log_index != -1 and self.log[request.prev_log_index].term != request.prev_log_term:
-                return {"success": False, "term": self.term, "error": "Log term mismatch"}
+            # # Check if the term at the previous log index matches
+            #
+            #if request.prev_log_index != -1 and self.log[request.prev_log_index].term != request.prev_log_term:
+               #return {"success": False, "term": self.term, "error": "Log term mismatch"}
 
+            #if request.prev_log_index != -1 :
+            #     # Remove conflicting entries
+                #self.log = self.log[:request.prev_log_index + 1]
+                
             # Truncate the log if necessary and append new entries
             #self.log = self.log[:request.prev_log_index + 1]
             self.log = self.log[:request.prev_log_index + 1]
@@ -247,10 +253,10 @@ class Node:
         for node in self.all_nodes:
             if node['state'] != 'leader':
                 self.nextIndex[node['port']] = len(self.log)
-
+        
         # Trigger log replication to the follower nodes
         self.replicate_log_to_followers(new_log_entry)
-
+        
     def replicate_log_to_followers(self,command):
         monitor2 = HeartbeatMonitor(self.all_nodes, self.commit_index, self.node_id, self.term, self.log, self.nextIndex)
         monitor2.log.append(command)
