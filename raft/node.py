@@ -98,7 +98,8 @@ class Node:
             if self.state == 'leader':
                 self.active_requests+=1
                 self.active_requests-=1
-                command = f"set {key} {value}"  # The command to be replicated
+                command = f"set {key} {value}"  
+                # The command to be replicated
                 self.append_new_entry_and_replicate(command)
                 return {"message": "Write request processed and replicated"}
         # Insert the new key-value pair
@@ -171,25 +172,31 @@ class Node:
             #
             #if request.prev_log_index != -1 and self.log[request.prev_log_index].term != request.prev_log_term:
                #return {"success": False, "term": self.term, "error": "Log term mismatch"}
-
-            #if request.prev_log_index != -1 :
-            #     # Remove conflicting entries
-                #self.log = self.log[:request.prev_log_index + 1]
+            #buggy
+            # if request.prev_log_index != -1:
+            #     if request.prev_log_index > len(self.log):
+            #         print("condition 1")
+            #if leader index than leader,
+            #         return {"success": False, "term": self.term, "error": "prev_log_index out of bounds"}
             
+            if request.leader_commit > self.commit_index:
+                    self.commit_index = min(request.leader_commit, len(self.log) - 1)
+                    return {"success": False, "term": self.term, "error": "Log index mismatch", "mismatch_index": request.prev_log_index}
+                
             # Truncate the log if necessary and append new entries
             #self.log = self.log[:request.prev_log_index + 1]
-            self.log = self.log[:request.prev_log_index + 1]
+           
             for entry in request.entries:
                 new_log_entry = LogEntry(index=entry['index'], term=entry['term'], command=entry['command'])
                 # Check if new entry's index is greater than the last index in the log
                 if not self.log or new_log_entry.index > self.log[-1].index:
                     self.log.append(new_log_entry)
+            
 
             # Update the commit index
-            if request.leader_commit > self.commit_index:
-                self.commit_index = min(request.leader_commit, len(self.log) - 1)
+            
 
-            return {"success": True, "term": self.term}
+            return {"success": True, "term": self.term, "last_log_index": len(self.log) - 1}
 
     def start_server(self):
         uvicorn.run(self.app, host=self.ip, port=self.port, log_level="info")
@@ -248,6 +255,7 @@ class Node:
         self.monitor.term= self.term
         self.monitor.next_index = self.nextIndex
         self.monitor.log = self.log 
+        self.monitor.leader_index = self.commit_index
         
     def stop_heartbeat(self):
         if self.heartbeat_thread:
@@ -255,21 +263,28 @@ class Node:
     
     def append_new_entry_and_replicate(self, command):
         # Append a new entry to the leader's log
-        new_log_entry = LogEntry(index=len(self.log), term=self.term, command=command)
+        new_log_entry = LogEntry(index=len(self.log)+1, term=self.term, command=command)
         #self.log.append(new_log_entry)
+        
 
         # Update nextIndex for all followers to the new length of the log
-        for node in self.all_nodes:
-            if node['state'] != 'leader':
-                self.nextIndex[node['port']] = len(self.log)
-        
+        # for node in self.all_nodes:
+        #     if node['state'] != 'leader':
+        #         print("before: ", self.nextIndex)
+        #         self.nextIndex[node['port']] = len(self.log)
+        #         print("after: ", self.nextIndex)
         # Trigger log replication to the follower nodes
         self.replicate_log_to_followers(new_log_entry)
+        
         
     def replicate_log_to_followers(self,command):
         #monitor2 = HeartbeatMonitor(self.all_nodes, self.commit_index, self.node_id, self.term, self.log, self.nextIndex)
         self.monitor.log.append(command)
+        #self.nextIndex[self.port] += 1
+        self.monitor.next_index[self.port] += 1
         self.monitor.send_append_entries()
         self.updateDataToSend()
+        #self.commit_index+=1
+        
         
    
