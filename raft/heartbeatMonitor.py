@@ -50,9 +50,9 @@ class HeartbeatMonitor():
             "entries": self.get_entries(follower, self.log),
             "leader_commit": commit_index,
         }
-        
+        print("sending: ", data)
         try:
-            print("full data: ", data)
+            
             
             response = requests.post(f"http://{follower['ip']}:{follower['port']}/append_entries", json=data)
             
@@ -61,13 +61,14 @@ class HeartbeatMonitor():
                 response_data = response.json()
                 if response_data.get("success"):
                     self.next_index[follower["port"]] = response_data["last_log_index"] + 1
-                if not response_data.get("success") and response_data.get("error") == "Log index mismatch":
+                    #self.commit_index += 1
+                elif not response_data.get("success") and response_data.get("error") == "Log index mismatch":
                     print(commit_index)
+                    
                     self.decrement_next_index(follower)
                     self.send_append_entry_to_follower(follower, self.next_index[follower["port"]], leader_id, term, command = self.log[self.next_index[follower["port"]]])
                     
-                else:
-                    self.handle_log_inconsistency(follower, response_data)
+              
           
                     
 
@@ -75,12 +76,14 @@ class HeartbeatMonitor():
         except requests.exceptions.RequestException as e:
             print(f"Error contacting node {follower['port']}: {e}")
         
-        finally:
-            self.log = []
+        
+        
     def send_append_entries(self):
         for node in self.nodes:
             if node['state'] != "leader":  # Exclude self (leader)
                 self.send_append_entry_to_follower(node, self.commit_index, self.leader_id, self.term)
+        print("cleaning log")
+        self.log = []
 
                 
     def get_prev_log_term(self, follower, log):
@@ -92,13 +95,13 @@ class HeartbeatMonitor():
     def get_prev_log_index(self, follower):
         follower_next_index = self.next_index[follower['port']] 
         if follower_next_index == 0: return 0 
-        return follower_next_index - 1# Use next_index
+        return follower_next_index# Use next_index
         
     def get_entries(self, follower, log):
         follower_next_index = self.next_index[follower['port']]
         # Debug print to check the entries being sent
         entries_to_send = [entry.to_dict() for entry in log[follower_next_index:]]
-        print("Entries being sent to follower:", entries_to_send)
+        
         return entries_to_send
     
     def update_next_index(self, follower, log):

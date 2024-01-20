@@ -45,7 +45,7 @@ class Node:
         self.state = [state for state in all_nodes if state['port'] == self.port][0]['state']
         self.last_heartbeat_time = time.time()
         #election
-        self.election_timeout = random.randint(800, 1600) / 100
+        self.election_timeout = random.randint(1000, 2000) / 100
         self.term = 1  # Election term
         self.voted_for = None
         self.deadNode = 0
@@ -179,8 +179,10 @@ class Node:
             #if leader index than leader,
             #         return {"success": False, "term": self.term, "error": "prev_log_index out of bounds"}
             
-            if request.leader_commit > self.commit_index:
-                    self.commit_index = min(request.leader_commit, len(self.log) - 1)
+            if (request.leader_commit > (self.commit_index + 1)) and (len(self.log) > 0):
+                    print("leader_commint" , request.leader_commit)
+                    print("commit index" , self.commit_index)
+                    self.commit_index = min(request.leader_commit, len(self.log))
                     return {"success": False, "term": self.term, "error": "Log index mismatch", "mismatch_index": request.prev_log_index}
                 
             # Truncate the log if necessary and append new entries
@@ -195,7 +197,7 @@ class Node:
 
             # Update the commit index
             
-
+            self.commit_index +=1
             return {"success": True, "term": self.term, "last_log_index": len(self.log) - 1}
 
     def start_server(self):
