@@ -1,3 +1,4 @@
+import asyncio
 import threading
 import argparse
 import logging
@@ -17,6 +18,9 @@ from requests import Session
 
 from raft.heartbeatMonitor import HeartbeatMonitor
 from raft.log import LogEntry
+from worker import write_to_file, getValue, putValue
+
+messages_to_mass_write = ""
 
 class AppendEntriesRequest(BaseModel):
     term: int
@@ -77,10 +81,16 @@ class Node:
                 self.active_requests -= 1
                 print("to many requests, sending to:")
                         #return await self.redirect_request(key)
+                
                 try:
+                    ''' DB IMPLEMENTATION '''
+                    value = await getValue(key)
+                    if value != "Key not found":
+                        self.active_requests -= 1
+                        return {"key": key, "value": value}
+                    return {"error": "Key not found"}
                             #self.memcached_client.set(key, value)
                             #self.redis_client.set(key, value)
-                            self.active_requests -= 1
                 except Exception as e:
                     print(f"Primary Cassandra instance failed: {e}")
                     # Switch to the secondary Cassandra instance
@@ -88,6 +98,8 @@ class Node:
                         
             with self.active_requests_lock:    
                 self.active_requests -= 1
+            self.append_new_entry_and_replicate("get")
+
             return {"error": "Key not found"}
 
         @self.app.post("/post/{key}")
@@ -95,10 +107,17 @@ class Node:
         # Check if the key already exists
             #if not self.is_node_alive():
                 #return await self.redirect_request(key)
+            ''' DB IMPLEMENTATION '''
+            start_writing = time.time()
+            #print(start_writing)
+            await write_to_file(key,value)
+            #print(time.time(), time.time() - start_writing)
+            print(f"Time needed to write this message to file was {time.time() - start_writing}")
+            ''' DEBUG '''
             if self.state == 'leader':
                 self.active_requests+=1
                 self.active_requests-=1
-                command = f"set {key} {value}"  
+                command = f"post {key} {value}"  
                 # The command to be replicated
                 self.append_new_entry_and_replicate(command)
                 return {"message": "Write request processed and replicated"}
@@ -118,7 +137,9 @@ class Node:
             #if not self.is_node_alive():
                 #return await self.redirect_request(key)
             self.active_requests+=1
-            
+            await putValue(key, value)
+            command = f"put {key} {value}"  
+            self.append_new_entry_and_replicate(command)
             self.active_requests-=1
             return {"message": "Value stored successfully"}
 
@@ -126,6 +147,8 @@ class Node:
         async def delete(key: str):
             self.active_requests+=1
             self.active_requests-=1
+            command = f"delete {key}"  
+            self.append_new_entry_and_replicate(command)
 
             return {"message": "Key deleted successfully"}
         
@@ -288,5 +311,5 @@ class Node:
         self.updateDataToSend()
         #self.commit_index+=1
         
-        
+
    
