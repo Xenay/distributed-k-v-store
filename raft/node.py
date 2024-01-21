@@ -65,34 +65,44 @@ class Node:
                 
         @self.app.get("/get/{key}")
         async def get(key: str):
-            #cached_value = self.memcached_client.get(key)
+                with self.active_requests_lock:  
+                    self.active_requests += 1
+                print(self.active_requests)
+                redirect_node = self.should_redirect()
+                if redirect_node:
+            # Redirect request to the follower node
+                    response = requests.get(f"http://{redirect_node['ip']}:{redirect_node['port']}/get/{key}")
+                    print(f"got response from {redirect_node['port']}")
+                    return response.json()
+                else:
+                #cached_value = self.memcached_client.get(key)
             #cached_value = self.redis_client.get(key)
             #if cached_value:
                 #return cached_value.decode('utf-8') 
-            with self.active_requests_lock:
-                self.active_requests += 1
-                print(self.active_requests)
-                # Load balancing: redirect if load is high
-                #if self.should_redirect():  # Threshold for load
-                self.active_requests -= 1
-                print("to many requests, sending to:")
-                try:
-                    ''' DB IMPLEMENTATION '''
-                    value = await getValue(key)
-                    if value != "Key not found":
-                        self.active_requests -= 1
-                        return {"key": key, "value": value}
-                    return {"error": "Key not found"}
-                            #self.memcached_client.set(key, value)
-                            #self.redis_client.set(key, value)
-                except Exception as e:
-                    print(f"Primary Cassandra instance failed: {e}")
-                    # Switch to the secondary Cassandra instance
-                            
-            with self.active_requests_lock:    
-                self.active_requests -= 1
-            self.append_new_entry_and_replicate("get")
-            return {"error": "Key not found"}
+                
+                    
+                    
+                    # Load balancing: redirect if load is high
+                    #if self.should_redirect():  # Threshold for load
+                    
+                   
+                    try:
+                        ''' DB IMPLEMENTATION '''
+                        value = await getValue(key)
+                        if value != "Key not found":
+                            self.active_requests -= 1
+                            return {"key": key, "value": value}
+                        return {"error": "Key not found"}
+                                #self.memcached_client.set(key, value)
+                                #self.redis_client.set(key, value)
+                    except Exception as e:
+                        print(f"Primary Cassandra instance failed: {e}")
+                        # Switch to the secondary Cassandra instance
+                                
+                with self.active_requests_lock:    
+                    self.active_requests -= 1
+                self.append_new_entry_and_replicate("get")
+                return {"error": "Key not found"}
 
         @self.app.post("/post/{key}")
         async def post(key: str, value: str):
@@ -288,6 +298,25 @@ class Node:
         self.monitor.send_append_entries()
         self.updateDataToSend()
         #self.commit_index+=1
-        
-
-   
+    
+    #redirecting load
+    def should_redirect(self):
+        with self.active_requests_lock:
+            if self.active_requests > 100:
+                return self.find_least_loaded_follower()
+        return None
+    
+    def find_least_loaded_follower(self):
+        least_loaded_node = None
+        min_load = float('inf')
+        for node in self.all_nodes:
+            if node['port'] != self.port and node['state'] == 'follower':
+                # Assume each node has a way to report its load, e.g., via an API endpoint /load
+                response = requests.get(f"http://{node['ip']}:{node['port']}/load")
+                print(f"sending request to port: {node['port']} ------------------------------------------------------------------------------------------------")
+                if response.status_code == 200:
+                    load = response.json().get('load')
+                    if load < min_load:
+                        min_load = load
+                        least_loaded_node = node
+        return least_loaded_node
