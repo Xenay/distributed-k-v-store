@@ -15,7 +15,6 @@ import uvicorn
 from typing import List, Dict, Optional
 from fastapi import FastAPI, HTTPException, Response, status
 from requests import Session
-
 from raft.heartbeatMonitor import HeartbeatMonitor
 from raft.log import LogEntry
 from worker import write_to_file, getValue, putValue
@@ -57,10 +56,7 @@ class Node:
         self.log = []
         self.commit_index = 1
         self.nextIndex = {node['port']: len(self.log) for node in self.all_nodes}
-        
         self.monitor = HeartbeatMonitor(self.all_nodes, self.commit_index, self.node_id, self.term, self.log, self.nextIndex)
-
-
         
         @self.app.get("/heartbeat")
         async def receive_heartbeat():
@@ -80,8 +76,6 @@ class Node:
                 #if self.should_redirect():  # Threshold for load
                 self.active_requests -= 1
                 print("to many requests, sending to:")
-                        #return await self.redirect_request(key)
-                
                 try:
                     ''' DB IMPLEMENTATION '''
                     value = await getValue(key)
@@ -94,12 +88,10 @@ class Node:
                 except Exception as e:
                     print(f"Primary Cassandra instance failed: {e}")
                     # Switch to the secondary Cassandra instance
-                    
-                        
+                            
             with self.active_requests_lock:    
                 self.active_requests -= 1
             self.append_new_entry_and_replicate("get")
-
             return {"error": "Key not found"}
 
         @self.app.post("/post/{key}")
@@ -120,9 +112,7 @@ class Node:
                 command = f"post {key} {value}"  
                 # The command to be replicated
                 self.append_new_entry_and_replicate(command)
-                return {"message": "Write request processed and replicated"}
-        # Insert the new key-value pair
-            
+                return {"message": "Write request processed and replicated"}     
             self.active_requests-=1
             #self.update_cache(key, value)
             return {"message": "New key-value pair created successfully"}
@@ -149,9 +139,7 @@ class Node:
             self.active_requests-=1
             command = f"delete {key}"  
             self.append_new_entry_and_replicate(command)
-
             return {"message": "Key deleted successfully"}
-        
 
         @self.app.get("/health")
         async def health_check():
@@ -163,7 +151,6 @@ class Node:
             uvicorn_server = getattr(self.app, 'server', None)
             if uvicorn_server:
                 await uvicorn_server.shutdown()
-            
             return {"status": "shutting down"}
         
         @self.app.get("/vote")
@@ -207,9 +194,6 @@ class Node:
                     print("commit index" , self.commit_index)
                     self.commit_index = min(request.leader_commit, len(self.log))
                     return {"success": False, "term": self.term, "error": "Log index mismatch", "mismatch_index": request.prev_log_index}
-                
-            # Truncate the log if necessary and append new entries
-            #self.log = self.log[:request.prev_log_index + 1]
            
             for entry in request.entries:
                 new_log_entry = LogEntry(index=entry['index'], term=entry['term'], command=entry['command'])
@@ -217,16 +201,12 @@ class Node:
                 if not self.log or new_log_entry.index > self.log[-1].index:
                     self.log.append(new_log_entry)
             
-
-            # Update the commit index
-            
             self.commit_index +=1
             return {"success": True, "term": self.term, "last_log_index": len(self.log) - 1}
 
     def start_server(self):
         uvicorn.run(self.app, host=self.ip, port=self.port, log_level="info")
   
-    
     def start_election(self):
         self.term += 1
         self.state = "candidate"
@@ -254,9 +234,7 @@ class Node:
                         
 
     def check_if_leader_alive(self):
-        
         print((time.time() - self.last_heartbeat_time))
-        
         if (time.time() - self.last_heartbeat_time) > self.election_timeout and (self.state != "leader"):
             print("timeout")
             #self.start_election()
@@ -289,9 +267,8 @@ class Node:
     def append_new_entry_and_replicate(self, command):
         # Append a new entry to the leader's log
         new_log_entry = LogEntry(index=len(self.log)+1, term=self.term, command=command)
-        #self.log.append(new_log_entry)
         
-
+        #self.log.append(new_log_entry)
         # Update nextIndex for all followers to the new length of the log
         # for node in self.all_nodes:
         #     if node['state'] != 'leader':
@@ -299,6 +276,7 @@ class Node:
         #         self.nextIndex[node['port']] = len(self.log)
         #         print("after: ", self.nextIndex)
         # Trigger log replication to the follower nodes
+        
         self.replicate_log_to_followers(new_log_entry)
         
         

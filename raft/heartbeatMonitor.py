@@ -1,7 +1,6 @@
 import time
 import requests
 
-
 class HeartbeatMonitor():
     def __init__(self, nodes, commit_index,leader_id, term, log, next_index):
         self.nodes = nodes
@@ -14,24 +13,19 @@ class HeartbeatMonitor():
         # List of nodes in the system
 
     def send_heartbeats(self):
-        
         while True:
-            
             for follower in self.nodes:
                 if follower["state"] != 'leader':
                     self.check_node_status(follower)
                     print("next index is:", self.next_index)
-                    self.send_append_entry_to_follower(follower, self.commit_index, self.leader_id, self.term)
-                    
+                    self.send_append_entry_to_follower(follower, self.commit_index, self.leader_id, self.term) 
             time.sleep(0.5)  # Example heartbeat interval
 
     def check_node_status(self, node):
         try:
             print(f"http://{node['ip']}:{node['port']}/heartbeat")
             response = requests.get(f"http://{node['ip']}:{node['port']}/heartbeat")
-         
             if response.status_code == 200:
-                
                 print(f"Node {node['ip']}:{node['port']} is up")
             else:
                 print(f"Node {node['ip']}:{node['port']} is down")
@@ -41,7 +35,6 @@ class HeartbeatMonitor():
 
     def send_append_entry_to_follower(self, follower, commit_index, leader_id, term, command = None):
         # Prepare the data for the appendEntries RPC
-        
         data = {
             "term": term,
             "leader_id": leader_id,
@@ -52,10 +45,7 @@ class HeartbeatMonitor():
         }
         print("sending: ", data)
         try:
-            
-            
             response = requests.post(f"http://{follower['ip']}:{follower['port']}/append_entries", json=data)
-            
             # Handle the response
             if response.status_code == 200:
                 response_data = response.json()
@@ -64,28 +54,19 @@ class HeartbeatMonitor():
                     #self.commit_index += 1
                 elif not response_data.get("success") and response_data.get("error") == "Log index mismatch":
                     print(commit_index)
-                    
                     self.decrement_next_index(follower)
                     self.send_append_entry_to_follower(follower, self.next_index[follower["port"]], leader_id, term, command = self.log[self.next_index[follower["port"]]])
-                    
-              
-          
-                    
-
-            # ...
+ 
         except requests.exceptions.RequestException as e:
             print(f"Error contacting node {follower['port']}: {e}")
-        
-        
-        
+  
     def send_append_entries(self):
         for node in self.nodes:
             if node['state'] != "leader":  # Exclude self (leader)
                 self.send_append_entry_to_follower(node, self.commit_index, self.leader_id, self.term)
         print("cleaning log")
         self.log = []
-
-                
+           
     def get_prev_log_term(self, follower, log):
         prev_log_index = self.get_prev_log_index(follower)
         if prev_log_index < 0 or prev_log_index >= len(log):
