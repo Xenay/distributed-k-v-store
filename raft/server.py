@@ -15,8 +15,11 @@ from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.query import SimpleStatement
 from requests import Session
-#import memcache
-#import redis
+
+# import memcache
+# import redis
+
+""" Cassandra - outdated """
 
 
 class CassandraSessionManager:
@@ -36,8 +39,12 @@ class CassandraSessionManager:
             return self.session
 
         try:
-            auth_provider = PlainTextAuthProvider(username='cassandra', password='cassandra')
-            self.cluster = Cluster(contact_points=hosts, port=port, auth_provider=auth_provider)
+            auth_provider = PlainTextAuthProvider(
+                username="cassandra", password="cassandra"
+            )
+            self.cluster = Cluster(
+                contact_points=hosts, port=port, auth_provider=auth_provider
+            )
             self.session = self.cluster.connect()
         except Exception as e:
             logging.error(f"Error connecting to Cassandra: {e}")
@@ -53,12 +60,6 @@ class CassandraSessionManager:
 
         self.cluster = None
         self.session = None
-        
 
 
-
-
-                
-
-
-#follower
+# follower
